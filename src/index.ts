@@ -6,7 +6,7 @@ import { userStates, adminThreadMap } from './state';
 const bot = new Telegraf(process.env.BOT_TOKEN!);
 const ADMIN_GROUP_ID = process.env.ADMIN_GROUP_ID ? Number(process.env.ADMIN_GROUP_ID) : undefined;
 
-// ----- Helpers -----
+// ===== Helpers =====
 const PAGE_SIZE = 8;
 type IKBtn = ReturnType<typeof Markup.button.callback>;
 
@@ -25,7 +25,7 @@ function buildPage(page: number) {
   return { text, keyboard: Markup.inlineKeyboard([...qButtons, ...nav], { columns: 4 }) };
 }
 
-// ----- Debug (remove later) -----
+// ===== Debug (remove later) =====
 bot.use(async (ctx: Context, next) => {
   console.log('Update:', ctx.updateType, 'chat:', ctx.chat?.id, ctx.chat?.type);
   return next();
@@ -36,7 +36,7 @@ bot.command('id', ctx => {
   console.log('Chat ID:', ctx.chat.id, 'Type:', ctx.chat.type);
 });
 
-// ----- Commands & Actions -----
+// ===== Commands & Actions =====
 bot.start(ctx =>
   ctx.reply(
     'Welcome! Choose:\n• “View all questions”\n• Send a #CODE\n• Or talk to an admin.',
@@ -52,18 +52,21 @@ bot.command('questions', ctx => {
   return ctx.reply(p.text, p.keyboard);
 });
 
-bot.action('SHOW_QS', ctx => {
+bot.action('SHOW_QS', async ctx => {
+  await ctx.answerCbQuery(); // ACK to avoid BOT_RESPONSE_TIMEOUT
   const p = buildPage(0);
   return ctx.editMessageText(p.text, p.keyboard);
 });
 
-bot.action(/PG_(\d+)/, ctx => {
+bot.action(/PG_(\d+)/, async ctx => {
+  await ctx.answerCbQuery();
   const page = parseInt(ctx.match[1], 10);
   const p = buildPage(page);
   return ctx.editMessageText(p.text, p.keyboard);
 });
 
-bot.action(/Q_(.+)/, ctx => {
+bot.action(/Q_(.+)/, async ctx => {
+  await ctx.answerCbQuery();
   const key = ctx.match[1];
   const qa = QUESTIONS.find(q => q.key === key);
   return ctx.reply(qa?.answer ?? 'No answer found.');
@@ -79,7 +82,8 @@ bot.hears(/^#\w+/i, async ctx => {
 });
 
 // Talk to admin
-bot.action('TALK_ADMIN', ctx => {
+bot.action('TALK_ADMIN', async ctx => {
+  await ctx.answerCbQuery();
   userStates.set(ctx.from.id, 'talking_to_admin');
   return ctx.reply('You are now connected to an admin. Send your message:');
 });
@@ -114,9 +118,9 @@ bot.on('message', async ctx => {
   }
 });
 
-// ----- Launch (polling) -----
+// ===== Launch (polling) =====
 (async () => {
-  await bot.telegram.deleteWebhook(); // ensure polling
+  await bot.telegram.deleteWebhook(); // ensure polling mode
   await bot.launch();
   console.log('Bot started with long polling');
 })();
