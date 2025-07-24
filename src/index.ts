@@ -1,42 +1,62 @@
 import 'dotenv/config';
 import { Telegraf, Markup, Context } from 'telegraf';
 import { QUESTIONS, CODES } from './content';
-import { userStates, adminThreadMap } from './state';
+import { userStates } from './state';
 
 const bot = new Telegraf(process.env.BOT_TOKEN!);
-const ADMIN_GROUP_ID = process.env.ADMIN_GROUP_ID ? Number(process.env.ADMIN_GROUP_ID) : undefined;
 
-// ===== Helpers =====
+// Map of admin Telegram IDs to display names
+const ADMIN_NAMES: Record<number, string> = {
+  5937823486: 'Wei Bin',
+  189533640: 'Wei Ting',
+  // …add more as needed
+};
+
+// ---------- Configuration ----------
+const ADMIN_IDS: number[] = (process.env.ADMIN_IDS || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean)
+  .map(Number);
+
+let rrIndex = 0;
+
+interface Ticket {
+  adminId: number;
+  code: string;
+  open: boolean;
+}
+const tickets = new Map<number, Ticket>();
+
+// ---------- Helpers ----------
 const PAGE_SIZE = 8;
 type IKBtn = ReturnType<typeof Markup.button.callback>;
 
 function buildPage(page: number) {
   const start = page * PAGE_SIZE;
   const slice = QUESTIONS.slice(start, start + PAGE_SIZE);
-
   const text = slice.map(q => `${q.key}. ${q.question}`).join('\n');
-
   const qButtons: IKBtn[] = slice.map(q => Markup.button.callback(q.key, `Q_${q.key}`));
-
   const nav: IKBtn[] = [];
   if (page > 0) nav.push(Markup.button.callback('◀️ Prev', `PG_${page - 1}`));
-  if (start + PAGE_SIZE < QUESTIONS.length) nav.push(Markup.button.callback('Next ▶️', `PG_${page + 1}`));
-
+  if (start + PAGE_SIZE < QUESTIONS.length)
+    nav.push(Markup.button.callback('Next ▶️', `PG_${page + 1}`));
   return { text, keyboard: Markup.inlineKeyboard([...qButtons, ...nav], { columns: 4 }) };
 }
 
-// ===== Debug (remove later) =====
-bot.use(async (ctx: Context, next) => {
-  console.log('Update:', ctx.updateType, 'chat:', ctx.chat?.id, ctx.chat?.type);
-  return next();
-});
+function pickAdmin(): number | undefined {
+  if (!ADMIN_IDS.length) return undefined;
+  const adminId = ADMIN_IDS[rrIndex % ADMIN_IDS.length];
+  rrIndex += 1;
+  return adminId;
+}
 
-bot.command('id', ctx => {
-  ctx.reply(`Chat ID: ${ctx.chat.id}`);
-  console.log('Chat ID:', ctx.chat.id, 'Type:', ctx.chat.type);
-});
+function formatUser(ctx: Context) {
+  const user = ctx.from!;
+  return user.username ? `@${user.username}` : user.first_name || `${user.id}`;
+}
 
-// ===== Commands & Actions =====
+// ---------- Q&A & Code Handlers ----------
 bot.start(ctx =>
   ctx.reply(
     'Welcome! Choose:\n• “View all questions”\n• Send a #CODE\n• Or talk to an admin.',
@@ -53,27 +73,57 @@ bot.command('questions', ctx => {
 });
 
 bot.action('SHOW_QS', async ctx => {
-  await ctx.answerCbQuery(); // ACK to avoid BOT_RESPONSE_TIMEOUT
+  await ctx.answerCbQuery();
   const p = buildPage(0);
   return ctx.editMessageText(p.text, p.keyboard);
 });
 
 bot.action(/PG_(\d+)/, async ctx => {
   await ctx.answerCbQuery();
-  const page = parseInt(ctx.match[1], 10);
+  const page = parseInt(ctx.match![1], 10);
   const p = buildPage(page);
   return ctx.editMessageText(p.text, p.keyboard);
 });
 
 bot.action(/Q_(.+)/, async ctx => {
   await ctx.answerCbQuery();
-  const key = ctx.match[1];
+  const key = ctx.match![1];
   const qa = QUESTIONS.find(q => q.key === key);
   return ctx.reply(qa?.answer ?? 'No answer found.');
 });
 
-// #CODE handler
+// ---------- Admin Reply Handler (must come before generic #CODE handler) ----------
+bot.hears(/^#(\d+)\s+([\s\S]+)/, async ctx => {
+  if (ctx.chat.type !== 'private') return;
+  const adminId = ctx.from!.id;
+  if (!ADMIN_IDS.includes(adminId)) return;
+
+  const match = ctx.message.text.match(/^#(\d+)\s+([\s\S]+)/);
+  if (!match) return;
+  const userId = parseInt(match[1], 10);
+  const reply = match[2];
+
+  const ticket = tickets.get(userId);
+  if (!ticket || ticket.adminId !== adminId || !ticket.open) {
+    return ctx.reply('❌ Invalid code or no open ticket.');
+  }
+
+  // Lookup the friendly name (fall back to adminId if missing)
+  const adminName = ADMIN_NAMES[adminId] || `#${adminId}`;
+
+  try {
+    await bot.telegram.sendMessage(userId, `From Admin ${adminName}\n\n${reply}`);
+    await ctx.reply('✅ Sent to user.');
+  } catch (e) {
+    console.error('Failed to send reply to user:', e);
+    await ctx.reply('❌ Failed to send to user.');
+  }
+});
+
+// ---------- Generic #CODE Handler ----------
 bot.hears(/^#\w+/i, async ctx => {
+  // Skip numeric codes (handled by admin handler)
+  if (/^#\d+/.test(ctx.message.text)) return;
   const code = ctx.message.text.trim().toUpperCase();
   const hit = CODES[code];
   if (!hit) return ctx.reply('❌ Unknown code.');
@@ -81,46 +131,62 @@ bot.hears(/^#\w+/i, async ctx => {
   if (hit.image) await ctx.replyWithPhoto(hit.image);
 });
 
-// Talk to admin
+// ---------- Talk to Admin Flow ----------
 bot.action('TALK_ADMIN', async ctx => {
   await ctx.answerCbQuery();
-  userStates.set(ctx.from.id, 'talking_to_admin');
-  return ctx.reply('You are now connected to an admin. Send your message:');
+  userStates.set(ctx.from!.id, 'talking_to_admin');
+  return ctx.reply('You are now connected to an admin. Send your message.');
 });
 
-// User messages in admin-chat mode
 bot.on('text', async ctx => {
-  const state = userStates.get(ctx.from.id) ?? 'default';
+  if (ctx.chat.type !== 'private') return;
+  const state = userStates.get(ctx.from!.id) || 'default';
   if (state !== 'talking_to_admin') return;
 
-  if (!ADMIN_GROUP_ID) return ctx.reply('Admin chat not configured yet.');
+  const userId = ctx.from!.id;
+  const text = ctx.message.text || '';
 
-  const fwd = await ctx.telegram.sendMessage(
-    ADMIN_GROUP_ID,
-    `From ${ctx.from.username || ctx.from.first_name} (${ctx.from.id}):\n${ctx.message.text}`
-  );
-  adminThreadMap.set(fwd.message_id, ctx.from.id);
-  await ctx.reply('📨 Sent to admin. We will reply soon.');
-});
+  let ticket = tickets.get(userId);
+  if (!ticket || !ticket.open) {
+    const adminId = pickAdmin();
+    if (!adminId) {
+      return ctx.reply('No admins available. Please try again later.');
+    }
+    const code = `${userId}`;
+    ticket = { adminId, code, open: true };
+    tickets.set(userId, ticket);
 
-// Admin replies back (reply to forwarded message)
-bot.on('message', async ctx => {
-  if (!ADMIN_GROUP_ID || ctx.chat.id !== ADMIN_GROUP_ID) return;
-
-  const replyTo = (ctx.message as any).reply_to_message;
-  if (!replyTo) return;
-
-  const userId = adminThreadMap.get(replyTo.message_id);
-  if (!userId) return;
-
-  if ('text' in ctx.message) {
-    await ctx.telegram.sendMessage(userId, ctx.message.text);
+    try {
+      await bot.telegram.sendMessage(
+        adminId,
+        `🆕 New request #${code} from ${formatUser(ctx)}:\n${text}`
+      );
+    } catch (e) {
+      console.error('Failed to DM admin:', e);
+    }
+    await ctx.reply(`📨 Sent to admin as #${code}.`);
+// Prompt user to restart
+await ctx.reply("Type /start again to use the bot or talk to the admins.");
+// Reset state until user restarts
+userStates.delete(userId);
+  } else {
+    ticket.open = true;
+    tickets.set(userId, ticket);
+    try {
+      await bot.telegram.sendMessage(
+        ticket.adminId,
+        `🔁 Follow-up #${ticket.code} from ${formatUser(ctx)}:\n${text}`
+      );
+    } catch (e) {
+      console.error('Failed to DM admin:', e);
+    }
+    await ctx.reply(`📨 Sent to admin as #${ticket.code}.`);
   }
 });
 
-// ===== Launch (polling) =====
+// ---------- Launch (polling) ----------
 (async () => {
-  await bot.telegram.deleteWebhook(); // ensure polling mode
+  await bot.telegram.deleteWebhook();
   await bot.launch();
   console.log('Bot started with long polling');
 })();
