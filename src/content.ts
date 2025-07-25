@@ -15,6 +15,6 @@ export const QUESTIONS: QA[] = [
 ];
 
 export const CODES: Record<string, CodeEntry> = {
-  '#04Y8': { text: 'Here is the message for 04Y8', image: 'https://via.placeholder.com/300' },
+  '#04Y8': { text: 'Here is the message for 04Y8', image: 'https://imgur.com/a/ERmt2s5' },
   '#01EE': { text: 'Message for 01EE' }
 };
