@@ -3,6 +3,11 @@ import { Telegraf, Markup, Context } from 'telegraf';
 import { CODES } from './content';
 import { userStates } from './state';
 
+if (!process.env.BOT_TOKEN) {
+  console.error('FATAL: BOT_TOKEN is not set in environment!');
+  process.exit(1);
+}
+
 const bot = new Telegraf(process.env.BOT_TOKEN!);
 
 // Map of admin Telegram IDs to display names
