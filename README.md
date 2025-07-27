@@ -1,4 +1,5 @@
 # Echoes of the Murder Event 7-8 August 2025
+Bot's tele handle: detective_echoes_bot
 
 ## Main Functionality
 
