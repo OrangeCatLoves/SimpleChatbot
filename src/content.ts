@@ -15,6 +15,9 @@ export const QUESTIONS: QA[] = [
 ];
 
 export const CODES: Record<string, CodeEntry> = {
-  '#04Y8': { text: 'Here is the message for 04Y8', image: 'https://imgur.com/a/ERmt2s5' },
-  '#01EE': { text: 'Message for 01EE' }
+  '#1RDT': { text: 'Description: Grainy picture of a man and woman caught arguing outside the Golden Mile movie theatre.\n\nDate: 15 June 1955', image: 'https://imgur.com/a/LqtR9ec' },
+  '#2IJG': { text: 'Description: A chauffeur opening the car door for his lady boss.\n\nDate: 15 May 1955', image: 'https://imgur.com/QN4ygOJ' },
+  "#3XGM": { text: 'Description: Man arguing with woman.\n\nDate: 27 June 1955', image: 'https://imgur.com/R2FSWa6' },
+  '#4FPB': { text: 'Media file is corrupted.\n\nDescription: Blurry CCTV footage of a silhouette dragging corpse away.\n\nDate: 27 June 1955\n\nTime: 12.47 AM' },
+  '#5DAK': { text: 'Description: Xuan Liu the movie actress, spotted walking on the streets in public.\n\nDate: 10 May 1955', image: 'https://imgur.com/5Elg0Hw' },
 };
