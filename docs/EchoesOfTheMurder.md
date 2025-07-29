@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-# Main
-=======
 # Echoes of the Murder Event 7-8 August 2025
-Bot's tele handle: detective_echoes_bot
 
 ## Main Functionality
 
@@ -28,4 +24,3 @@ Bot's tele handle: detective_echoes_bot
    * Users are allocated to the admin in a round-robin basis so that the workload is spread amongst all registered admins.
    * Admins should be constantly tied to the same user. Meaning that all messages sent by the same user should be sent to the same corresponding admin.
    * .env file should contain all the ADMIN_ID, change th MAP accordingly to match the username to be shown to the users in index.ts.
->>>>>>> 22e2aec63c1810bf64da1231273a6b4b3551cfdb
