@@ -48,7 +48,16 @@ function formatUser(ctx: Context) {
 // ---------- Start & Main Menu ----------
 bot.start(ctx =>
   ctx.reply(
-    'Welcome! Choose an option:',
+        `👋 Welcome!
+To get started, type /start and choose one:
+
+🔑 Enter Code
+- Submit a clue code you found
+
+🗣️ Talk to Admin
+- Ask us a question
+
+To do another action later, just tap a button or type /start again.`,
     Markup.inlineKeyboard([
       [Markup.button.callback('Enter Code', 'ENTER_CODE')],
       [Markup.button.callback('Talk to admin', 'TALK_ADMIN')]
