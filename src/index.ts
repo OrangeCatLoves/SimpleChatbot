@@ -53,6 +53,7 @@ To get started, type /start and choose one:
 
 🔑 Enter Code
 - Submit a clue code you found
+- Ensure that your CODE is prefixed with a # (e.g. #AB12)
 
 🗣️ Talk to Admin
 - Ask us a question
