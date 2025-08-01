@@ -17,6 +17,9 @@ const ADMIN_NAMES: Record<number, string> = {
   // …add more as needed
 };
 
+// Track which user an admin is currently replying to with images
+const adminImageTargets = new Map<number, number>();  // adminId -> userId
+
 // ---------- Configuration ----------
 const ADMIN_IDS: number[] = (process.env.ADMIN_IDS || '')
   .split(',')
@@ -71,19 +74,18 @@ To do another action later, just tap a button or type /start again.`,
 bot.action('ENTER_CODE', async ctx => {
   await ctx.answerCbQuery();
   userStates.set(ctx.from!.id, 'entering_code');
-  return ctx.reply('Please enter your code:');
+  return ctx.reply('(Code must be prefixed with #. For example: #AB34) Please enter your code:');
 });
 
 // ---------- Admin Reply Handler (must come before the generic text handler) ----------
+// ---------- Admin “check-in” for image replies ----------
 bot.hears(/^#(\d+)\s+([\s\S]+)/, async ctx => {
   if (ctx.chat.type !== 'private') return;
   const adminId = ctx.from!.id;
   if (!ADMIN_IDS.includes(adminId)) return;
 
-  const m = ctx.message.text.match(/^#(\d+)\s+([\s\S]+)/)!;
-  const userId = +m[1];
-  const reply  = m[2];
-
+  const [, code, reply] = ctx.message.text.match(/^#(\d+)\s+([\s\S]+)/)!;
+  const userId = Number(code);
   const ticket = tickets.get(userId);
   if (!ticket || ticket.adminId !== adminId || !ticket.open) {
     return ctx.reply('❌ Invalid code or no open ticket.');
@@ -94,12 +96,38 @@ bot.hears(/^#(\d+)\s+([\s\S]+)/, async ctx => {
     userId,
     `From Admin ${adminName}\n\n${reply}`
   );
+  // allow next photo to be forwarded
+  adminImageTargets.set(adminId, userId);
   return ctx.reply('✅ Sent to user.');
 });
+
 
 // ---------- Fallback Generic Code (optional) ----------
 // Only catch non-numeric codes; numeric ticket replies go to the admin handler
 bot.hears(/^#[A-Za-z]\w*/, ctx => ctx.reply('❌ Invalid code. Find the clues first to obtain the code! Press /start again to re-enter code.'));
+
+// ---------- Admin Image Reply Handler ----------
+bot.on('photo', async ctx => {
+  if (ctx.chat.type !== 'private') return;
+  const adminId = ctx.from!.id;
+  if (!ADMIN_IDS.includes(adminId)) return;
+
+  const userId = adminImageTargets.get(adminId);
+  if (!userId) return;  // no outstanding ticket for an image
+
+  // pick highest‐res version
+  const photos = ctx.message.photo!;
+  const fileId = photos[photos.length - 1].file_id;
+
+  // forward to user
+  await ctx.telegram.sendPhoto(userId, fileId);
+
+  // confirm back to admin
+  await ctx.reply('✅ Sent to user.');
+
+  // clear the mapping so further photos aren’t auto-forwarded
+  adminImageTargets.delete(adminId);
+});
 
 // ---------- Handle user text: Code entry & Talk-to-admin ----------
 bot.on('text', async ctx => {
@@ -155,7 +183,7 @@ bot.on('text', async ctx => {
     }
 
     // in both cases, prompt them to /start again
-    await ctx.reply('Type /start to send a message again to the admin.');
+    await ctx.reply('Type /start to send a message again to the admin. Or simply select "Enter Code" or "Talk to admin" from the previous prompt');
     // clear their state so they must restart
     userStates.delete(uid);
   }
