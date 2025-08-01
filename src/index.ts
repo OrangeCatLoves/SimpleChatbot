@@ -77,8 +77,7 @@ bot.action('ENTER_CODE', async ctx => {
   return ctx.reply('(Code must be prefixed with #. For example: #AB34) Please enter your code:');
 });
 
-// ---------- Admin Reply Handler (must come before the generic text handler) ----------
-// ---------- Admin “check-in” for image replies ----------
+// ---------- Admin Text Reply Handler ----------
 bot.hears(/^#(\d+)\s+([\s\S]+)/, async ctx => {
   if (ctx.chat.type !== 'private') return;
   const adminId = ctx.from!.id;
@@ -91,14 +90,36 @@ bot.hears(/^#(\d+)\s+([\s\S]+)/, async ctx => {
     return ctx.reply('❌ Invalid code or no open ticket.');
   }
 
-  const adminName = ADMIN_NAMES[adminId] || `Admin`;
-  await bot.telegram.sendMessage(
+  const adminName = ADMIN_NAMES[adminId] || 'Admin';
+  // send the text reply
+  await ctx.telegram.sendMessage(
     userId,
     `From Admin ${adminName}\n\n${reply}`
   );
-  // allow next photo to be forwarded
+  // arm next image
   adminImageTargets.set(adminId, userId);
+
   return ctx.reply('✅ Sent to user.');
+});
+
+
+// ---------- Admin Reply Handler (must come before the generic text handler) ----------
+// ---------- Admin “check-in” for image-only replies ----------
+bot.hears(/^#(\d+)$/, async ctx => {
+  if (ctx.chat.type !== 'private') return;
+  const adminId = ctx.from!.id;
+  if (!ADMIN_IDS.includes(adminId)) return;
+
+  const [, code] = ctx.message.text.match(/^#(\d+)$/)!;
+  const userId = Number(code);
+  const ticket = tickets.get(userId);
+  if (!ticket || ticket.adminId !== adminId || !ticket.open) {
+    return ctx.reply('❌ Invalid code or no open ticket.');
+  }
+
+  // arm the next photo to go to this user
+  adminImageTargets.set(adminId, userId);
+  return ctx.reply('✅ Ready to receive image. Please send the image now.');
 });
 
 
@@ -107,25 +128,40 @@ bot.hears(/^#(\d+)\s+([\s\S]+)/, async ctx => {
 bot.hears(/^#[A-Za-z]\w*/, ctx => ctx.reply('❌ Invalid code. Find the clues first to obtain the code! Press /start again to re-enter code.'));
 
 // ---------- Admin Image Reply Handler ----------
-bot.on('photo', async ctx => {
+bot.on(['photo', 'document'] as const, async ctx => {
   if (ctx.chat.type !== 'private') return;
-  const adminId = ctx.from!.id;
-  if (!ADMIN_IDS.includes(adminId)) return;
+  const adminId = ctx.from?.id;
+  if (!adminId || !ADMIN_IDS.includes(adminId)) return;
 
   const userId = adminImageTargets.get(adminId);
   if (!userId) return;  // no outstanding ticket for an image
 
-  // pick highest‐res version
-  const photos = ctx.message.photo!;
-  const fileId = photos[photos.length - 1].file_id;
+  // Narrow the union type on ctx.message
+  const msg = ctx.message as {
+    photo?: { file_id: string }[];
+    document?: { file_id: string; mime_type?: string };
+  };
 
-  // forward to user
-  await ctx.telegram.sendPhoto(userId, fileId);
+  if ('photo' in msg && Array.isArray(msg.photo)) {
+    // highest-res photo
+    const photos = msg.photo;
+    const fileId = photos[photos.length - 1].file_id;
+    await ctx.telegram.sendPhoto(userId, fileId);
 
-  // confirm back to admin
+  } else if ('document' in msg && msg.document?.mime_type?.startsWith('image/')) {
+    // image sent as a document
+    const fileId = msg.document.file_id;
+    await ctx.telegram.sendDocument(userId, fileId);
+
+  } else {
+    // neither a photo nor an image-typed document
+    return;
+  }
+
+  // confirm back to the admin
   await ctx.reply('✅ Sent to user.');
 
-  // clear the mapping so further photos aren’t auto-forwarded
+  // require a fresh "#ID" before the next image
   adminImageTargets.delete(adminId);
 });
 
